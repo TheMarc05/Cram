@@ -2,20 +2,19 @@ import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { aiService } from "../services/aiService";
 import { detectLanguage } from "../utils/languageDetector";
+import { DiffService } from "../services/diffService";
 
 export const analyzeFile = async (req: Request, res: Response) => {
   try {
     const { projectId, filename, content, path } = req.body;
     const userId = req.user!.id;
 
-    // Validare input
     if (!projectId || !filename || !content) {
       return res.status(400).json({
         error: "projectId, filename, and content are required",
       });
     }
 
-    // Verifică că proiectul aparține userului
     const project = await prisma.project.findFirst({
       where: {
         id: parseInt(projectId),
@@ -27,57 +26,141 @@ export const analyzeFile = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Project not found" });
     }
 
-    // Detectează limbajul
     const language = detectLanguage(filename);
+    const newHash = DiffService.calculateHash(content);
+    const filePath = path || "/";
 
     console.log(`📝 Analyzing ${filename} (${language})...`);
 
-    // Salvează fișierul în baza de date
+    const existingFile = await prisma.file.findFirst({
+      where: {
+        projectId: parseInt(projectId),
+        path: filePath,
+        filename: filename,
+      },
+      orderBy: {
+        version: "desc",
+      },
+    });
+
+    let isIncremental = false;
+    let diffResult = null;
+    let diffSnippet = "";
+    let changedLines: number[] = [];
+
+    if (existingFile && existingFile.contentHash) {
+      const oldHash = existingFile.contentHash;
+
+      if (oldHash !== newHash) {
+        console.log(
+          `🔄 File changed! Calculating diff... (v${existingFile.version} → v${existingFile.version + 1})`
+        );
+
+        diffResult = DiffService.calculateDiff(
+          existingFile.content,
+          content,
+          3
+        );
+
+        if (diffResult.hasChanges) {
+          isIncremental = true;
+          changedLines = [
+            ...diffResult.addedLines,
+            ...diffResult.modifiedLines,
+          ];
+          diffSnippet = DiffService.buildIncrementalSnippet(
+            content,
+            diffResult,
+            5
+          );
+
+          console.log(
+            `✅ Diff calculated: ${diffResult.totalChanges} changes (${diffResult.addedLines.length} added, ${diffResult.modifiedLines.length} modified, ${diffResult.deletedLines.length} deleted)`
+          );
+        }
+      } else {
+        console.log(`⏭️  File unchanged (same hash), skipping re-analysis`);
+        return res.status(200).json({
+          success: true,
+          message: "File unchanged, no re-analysis needed",
+          data: {
+            fileId: existingFile.id,
+            filename: existingFile.filename,
+            unchanged: true,
+          },
+        });
+      }
+    }
+
     const file = await prisma.file.create({
       data: {
         projectId: parseInt(projectId),
         filename,
-        path: path || "/",
+        path: filePath,
         content,
+        contentHash: newHash,
+        version: existingFile ? existingFile.version + 1 : 1,
         language,
         size: Buffer.byteLength(content, "utf8"),
         lastModified: new Date(),
       },
     });
 
-    // Creează review cu status PROCESSING
     const review = await prisma.review.create({
       data: {
         fileId: file.id,
         modelUsed: "codellama:7b-instruct",
         status: "PROCESSING",
+        isIncremental,
         report: {},
       },
     });
 
-    // Analizează cu AI (async)
     try {
-      const analysisResult = await aiService.analyzeCode(
-        content,
-        language,
-        filename
-      );
+      let analysisResult;
 
-      // Actualizează review cu rezultatele
+      if (isIncremental && diffResult) {
+        console.log(
+          `🔄 Running INCREMENTAL analysis on ${changedLines.length} changed lines...`
+        );
+
+        analysisResult = await aiService.analyzeCodeIncremental(
+          content,
+          language,
+          filename,
+          changedLines,
+          diffSnippet,
+          (project as any).customRules || undefined
+        );
+      } else {
+        console.log(`📝 Running FULL analysis...`);
+
+        analysisResult = await aiService.analyzeCode(
+          content,
+          language,
+          filename,
+          (project as any).customRules || undefined
+        );
+      }
+
       await prisma.review.update({
         where: { id: review.id },
         data: {
           status: "COMPLETED",
+          isIncremental,
+          changedLines: isIncremental
+            ? ({ added: diffResult!.addedLines, modified: diffResult!.modifiedLines, deleted: diffResult!.deletedLines } as any)
+            : undefined,
           report: {
             issues: analysisResult.issues,
           } as any,
           summary: analysisResult.summary as any,
           metadata: analysisResult.metadata as any,
-        },
+        } as any,
       });
 
       console.log(
-        `Analysis completed: ${analysisResult.summary.totalIssues} issues found`
+        `✅ ${isIncremental ? "Incremental" : "Full"} analysis completed: ${analysisResult.summary.totalIssues} issues found`
       );
 
       res.status(201).json({
@@ -87,6 +170,9 @@ export const analyzeFile = async (req: Request, res: Response) => {
           fileId: file.id,
           filename: file.filename,
           language: file.language,
+          version: file.version,
+          isIncremental,
+          changedLines: isIncremental ? changedLines.length : 0,
           summary: analysisResult.summary,
           issues: analysisResult.issues,
           metadata: analysisResult.metadata,
@@ -171,7 +257,8 @@ export const analyzeBatch = async (req: Request, res: Response) => {
         const analysisResult = await aiService.analyzeCode(
           content,
           language,
-          filename
+          filename,
+          (project as any).customRules || undefined
         );
 
         const review = await prisma.review.create({

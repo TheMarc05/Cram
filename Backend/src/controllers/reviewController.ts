@@ -203,7 +203,14 @@ export const getDashboardStats = async (req: Request, res: Response) => {
         },
         status: "COMPLETED",
       },
-      include: {
+      select: {
+        id: true,
+        fileId: true,
+        modelUsed: true,
+        status: true,
+        isIncremental: true,
+        summary: true,
+        createdAt: true,
         file: {
           select: {
             filename: true,

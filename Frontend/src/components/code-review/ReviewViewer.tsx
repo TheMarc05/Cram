@@ -27,7 +27,15 @@ export const ReviewViewer = ({ reviewId }: ReviewViewerProps) => {
     );
   }
 
-  const { file, report, summary, metadata, comments = [] } = currentReview;
+  const {
+    file,
+    report,
+    summary,
+    metadata,
+    comments = [],
+    isIncremental,
+    changedLines,
+  } = currentReview;
   const issues = report?.issues || [];
 
   return (
@@ -36,12 +44,46 @@ export const ReviewViewer = ({ reviewId }: ReviewViewerProps) => {
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {file?.filename}
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Language: {file?.language} • Model: {metadata?.model}
-            </p>
+            <div className="flex items-center space-x-3">
+              <h1 className="text-2xl font-bold text-gray-900">
+                {file?.filename}
+              </h1>
+              {isIncremental && (
+                <span className="px-3 py-1 bg-gradient-to-r from-purple-100 to-blue-100 text-purple-700 text-xs font-semibold rounded-full border border-purple-300 flex items-center space-x-1">
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  <span>INCREMENTAL</span>
+                </span>
+              )}
+              {file?.version && file.version > 1 && (
+                <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs font-mono rounded">
+                  v{file.version}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-3 mt-1">
+              <p className="text-sm text-gray-500">
+                Language: {file?.language} • Model: {metadata?.model}
+              </p>
+              {isIncremental && changedLines && (
+                <p className="text-xs text-purple-600 font-medium">
+                  +{changedLines.added?.length || 0} ~
+                  {changedLines.modified?.length || 0} -
+                  {changedLines.deleted?.length || 0} lines
+                </p>
+              )}
+            </div>
           </div>
           {summary && (
             <div className="flex items-center space-x-2 text-sm text-gray-600">

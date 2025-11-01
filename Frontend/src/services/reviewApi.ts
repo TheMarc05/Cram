@@ -54,6 +54,12 @@ export interface Review {
   fileId: number;
   modelUsed: string;
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+  isIncremental?: boolean;
+  changedLines?: {
+    added: number[];
+    modified: number[];
+    deleted: number[];
+  };
   report: {
     issues: Issue[];
   };
@@ -62,6 +68,9 @@ export interface Review {
     model: string;
     processingTime: number;
     language: string;
+    tokensUsed?: number;
+    promptTokens?: number;
+    responseTokens?: number;
   };
   createdAt: string;
   file?: {
@@ -71,6 +80,8 @@ export interface Review {
     content: string;
     path: string;
     projectId: number;
+    version?: number;
+    contentHash?: string;
   };
   comments?: Comment[];
 }
@@ -101,6 +112,7 @@ export interface DashboardStats {
     fileId: number;
     modelUsed: string;
     status: string;
+    isIncremental?: boolean;
     summary: AnalysisSummary;
     createdAt: string;
     file: {

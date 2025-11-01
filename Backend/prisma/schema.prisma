@@ -90,6 +90,8 @@ model File {
   filename String
   path String
   content String @db.Text
+  contentHash String?
+  version Int @default(1)
   language String
   size Int
   lastModified DateTime
@@ -99,6 +101,7 @@ model File {
   reviews Review[]
 
   @@index([projectId])
+  @@index([projectId, path])
   @@map("files")
 }
 
@@ -107,6 +110,8 @@ model Review {
   fileId Int
   modelUsed String
   status ReviewStatus @default(COMPLETED)
+  isIncremental Boolean @default(false)
+  changedLines Json? @db.JsonB
   report Json @db.JsonB
   summary Json? @db.JsonB
   metadata Json? @db.JsonB
