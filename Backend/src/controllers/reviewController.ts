@@ -232,14 +232,14 @@ export const getDashboardStats = async (req: Request, res: Response) => {
 export const addComment = async (req: Request, res: Response) => {
   try {
     const { reviewId } = req.params;
-    const { commentText, lineNumber } = req.body;
+    const { commentText, lineNumber, requestAIReply = true } = req.body; // ✅ Nou parametru
     const userId = req.user!.id;
 
     if (!commentText) {
       return res.status(400).json({ error: "Comment text is required" });
     }
 
-    // verify review exists and belongs to user
+    // Verifică review exists and belongs to user
     const review = await prisma.review.findFirst({
       where: {
         id: parseInt(reviewId),
@@ -249,13 +249,22 @@ export const addComment = async (req: Request, res: Response) => {
           },
         },
       },
+      include: {
+        file: {
+          select: {
+            content: true,
+            language: true,
+          },
+        },
+      },
     });
 
     if (!review) {
       return res.status(404).json({ error: "Review not found" });
     }
 
-    const comment = await prisma.comment.create({
+    // Create user comment
+    const userComment = await prisma.comment.create({
       data: {
         reviewId: parseInt(reviewId),
         authorId: userId,
@@ -276,9 +285,70 @@ export const addComment = async (req: Request, res: Response) => {
       },
     });
 
+    // ✅ Generate AI reply (if requested)
+    let aiComment = null;
+    if (requestAIReply && lineNumber) {
+      try {
+        // Find relevant issue
+        const issues = (review.report as any)?.issues || [];
+        const relevantIssue = issues.find(
+          (issue: any) => issue.line === parseInt(lineNumber)
+        );
+
+        if (relevantIssue) {
+          // Extract code context (5 lines before and after)
+          const codeLines = review.file.content.split("\n");
+          const startLine = Math.max(0, parseInt(lineNumber) - 5);
+          const endLine = Math.min(codeLines.length, parseInt(lineNumber) + 5);
+          const codeContext = codeLines.slice(startLine, endLine).join("\n");
+
+          // Generate AI reply
+          const aiService = new (
+            await import("../services/aiService")
+          ).AIService();
+          const aiReplyText = await aiService.generateCommentReply(
+            commentText,
+            relevantIssue,
+            codeContext,
+            review.file.language
+          );
+
+          // Save AI reply
+          aiComment = await prisma.comment.create({
+            data: {
+              reviewId: parseInt(reviewId),
+              authorId: userId, // same user for simplicity
+              commentText: aiReplyText,
+              lineNumber: lineNumber ? parseInt(lineNumber) : null,
+              isAI: true,
+            },
+            include: {
+              author: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  avatar: true,
+                },
+              },
+            },
+          });
+
+          console.log(`✅ AI replied to comment on line ${lineNumber}`);
+        }
+      } catch (aiError) {
+        console.error("AI reply failed, continuing without it:", aiError);
+        // Don't stop the process if AI fails
+      }
+    }
+
     res.status(201).json({
       success: true,
-      data: comment,
+      data: {
+        userComment,
+        aiComment, // can be null if AI didn't reply
+      },
     });
   } catch (error: any) {
     console.error("Add comment error:", error);

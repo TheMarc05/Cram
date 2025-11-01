@@ -1,6 +1,22 @@
 import axiosInstance from "./axiosInstance";
 
 // Types
+export interface Comment {
+  id: number;
+  reviewId: number;
+  authorId: number;
+  lineNumber?: number;
+  commentText: string;
+  isAI: boolean;
+  createdAt: string;
+  author: {
+    id: number;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+}
+
 export interface Project {
   id: number;
   userId: number;
@@ -164,7 +180,7 @@ export const reviewsApi = {
 
   addComment: async (
     reviewId: number,
-    data: { commentText: string; lineNumber?: number }
+    data: { commentText: string; lineNumber?: number; requestAIReply?: boolean }
   ) => {
     const response = await axiosInstance.post(
       `/reviews/${reviewId}/comments`,

@@ -27,7 +27,7 @@ export const ReviewViewer = ({ reviewId }: ReviewViewerProps) => {
     );
   }
 
-  const { file, report, summary, metadata } = currentReview;
+  const { file, report, summary, metadata, comments = [] } = currentReview;
   const issues = report?.issues || [];
 
   return (
@@ -122,7 +122,13 @@ export const ReviewViewer = ({ reviewId }: ReviewViewerProps) => {
           </div>
         ) : (
           issues.map((issue, index) => (
-            <IssueCard key={index} issue={issue} index={index} />
+            <IssueCard
+              key={index}
+              issue={issue}
+              index={index}
+              reviewId={reviewId}
+              comments={comments}
+            />
           ))
         )}
       </div>

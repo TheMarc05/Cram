@@ -1,8 +1,12 @@
-import type { Issue } from "../../services/reviewApi";
+import { useState } from "react";
+import type { Issue, Comment } from "../../services/reviewApi";
+import { CommentSection } from "./CommentSection";
 
 interface IssueCardProps {
   issue: Issue;
   index: number;
+  reviewId: number;
+  comments: Comment[];
 }
 
 const severityConfig = {
@@ -46,8 +50,19 @@ const categoryIcons: Record<string, string> = {
   "best-practice": "✨",
 };
 
-export const IssueCard = ({ issue, index }: IssueCardProps) => {
+export const IssueCard = ({
+  issue,
+  index,
+  reviewId,
+  comments,
+}: IssueCardProps) => {
   const config = severityConfig[issue.severity];
+  const [showComments, setShowComments] = useState(false);
+
+  // Filtrează comentariile pentru această linie
+  const issueComments = comments.filter(
+    (c) => c.lineNumber === issue.line || c.lineNumber === null
+  );
 
   return (
     <div
@@ -105,6 +120,39 @@ export const IssueCard = ({ issue, index }: IssueCardProps) => {
             <code>{issue.fixedCode}</code>
           </pre>
         </div>
+      )}
+      <button
+        onClick={() => setShowComments(!showComments)}
+        className="flex items-center space-x-2 text-sm text-gray-600 hover:text-blue-600 transition-colors mt-4"
+      >
+        <svg
+          className={`w-4 h-4 transform transition-transform ${
+            showComments ? "rotate-90" : ""
+          }`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 5l7 7-7 7"
+          />
+        </svg>
+        <span>
+          {showComments ? "Hide Comments" : "Show Comments"} (
+          {issueComments.length})
+        </span>
+      </button>
+
+      {/* Comment Section */}
+      {showComments && (
+        <CommentSection
+          reviewId={reviewId}
+          comments={issueComments}
+          lineNumber={issue.line}
+        />
       )}
     </div>
   );

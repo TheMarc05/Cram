@@ -36,6 +36,12 @@ interface ReviewState {
   setCurrentReview: (review: Review | null) => void;
   fetchDashboardStats: () => Promise<void>;
   deleteReview: (id: number) => Promise<void>;
+  addComment: (
+    reviewId: number,
+    commentText: string,
+    lineNumber?: number,
+    requestAIReply?: boolean
+  ) => Promise<void>;
 
   // Actions - Upload & Analyze
   uploadFiles: (files: File[], projectId: number) => Promise<void>;
@@ -151,6 +157,28 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       set({
         error: error.response?.data?.error || "Failed to delete review",
         isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  addComment: async (
+    reviewId,
+    commentText,
+    lineNumber,
+    requestAIReply = true
+  ) => {
+    try {
+      await reviewsApi.addComment(reviewId, {
+        commentText,
+        lineNumber,
+        requestAIReply,
+      });
+      // Auto-refresh review to display new comment + AI reply
+      await get().fetchReview(reviewId);
+    } catch (error: any) {
+      set({
+        error: error.response?.data?.error || "Failed to add comment",
       });
       throw error;
     }

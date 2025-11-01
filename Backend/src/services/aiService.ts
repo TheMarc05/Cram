@@ -115,6 +115,66 @@ Provide actionable, specific feedback. Include line numbers. Be concise but thor
     }
   }
 
+  async generateCommentReply(
+    userComment: string,
+    issue: any,
+    codeContext: string,
+    language: string
+  ): Promise<string> {
+    try {
+      console.log(`🤖 Generating AI reply to comment...`);
+
+      const prompt = `You are an AI code review assistant helping a developer.
+
+CONTEXT:
+- Language: ${language}
+- Issue: ${issue.title} (${issue.severity})
+- Problem at line ${issue.line}: ${issue.description}
+
+CODE CONTEXT:
+\`\`\`${language}
+${codeContext}
+\`\`\`
+
+USER COMMENT:
+"${userComment}"
+
+TASK:
+Respond to the user's comment in a helpful, concise way (2-3 sentences max).
+- If they ask for clarification, explain the issue better
+- If they ask for alternative solutions, provide them
+- If they disagree, respectfully explain your reasoning
+- Be friendly and supportive
+
+IMPORTANT: Respond ONLY with plain text (no JSON, no markdown formatting).`;
+
+      const response = await axios.post<OllamaResponse>(
+        `${this.ollamaBaseUrl}/api/generate`,
+        {
+          model: this.model,
+          prompt: prompt,
+          stream: false,
+          options: {
+            temperature: 0.7, //more creative for conversation
+            top_p: 0.9,
+            num_predict: 200, //short responses
+          },
+        },
+        {
+          timeout: 60000, //1 min for replies
+        }
+      );
+
+      const reply = response.data.response.trim();
+      console.log(`✅ AI reply generated (${reply.length} chars)`);
+      return reply;
+    } catch (error: any) {
+      console.error("❌ AI reply generation failed:", error.message);
+      // Fallback generic response
+      return "I'm here to help! Could you provide more details about your question?";
+    }
+  }
+
   private parseAIResponse(response: string): { issues: Issue[] } {
     try {
       const jsonMatch = response.match(/\{[\s\S]*\}/);
