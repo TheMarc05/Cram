@@ -1,0 +1,303 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.deleteReview = exports.addComment = exports.getDashboardStats = exports.getProjectReviews = exports.getReviewById = void 0;
+const prisma_1 = require("../lib/prisma");
+//get a specific review
+const getReviewById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const review = await prisma_1.prisma.review.findFirst({
+            where: {
+                id: parseInt(id),
+                file: {
+                    project: {
+                        userId,
+                    },
+                },
+            },
+            include: {
+                file: {
+                    select: {
+                        id: true,
+                        filename: true,
+                        language: true,
+                        content: true,
+                        path: true,
+                        projectId: true,
+                    },
+                },
+                comments: {
+                    include: {
+                        author: {
+                            select: {
+                                id: true,
+                                firstName: true,
+                                lastName: true,
+                                email: true,
+                                avatar: true,
+                            },
+                        },
+                    },
+                    orderBy: { createdAt: "asc" },
+                },
+            },
+        });
+        if (!review) {
+            return res.status(404).json({ error: "Review not found" });
+        }
+        res.json({
+            success: true,
+            data: review,
+        });
+    }
+    catch (error) {
+        console.error("Get review error:", error);
+        res.status(500).json({ error: "Failed to fetch review" });
+    }
+};
+exports.getReviewById = getReviewById;
+//get all review for a project
+const getProjectReviews = async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const userId = req.user.id;
+        // Verifică ownership
+        const project = await prisma_1.prisma.project.findFirst({
+            where: {
+                id: parseInt(projectId),
+                userId,
+            },
+        });
+        if (!project) {
+            return res.status(404).json({ error: "Project not found" });
+        }
+        const reviews = await prisma_1.prisma.review.findMany({
+            where: {
+                file: {
+                    projectId: parseInt(projectId),
+                },
+            },
+            include: {
+                file: {
+                    select: {
+                        filename: true,
+                        language: true,
+                        path: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+        });
+        res.json({
+            success: true,
+            data: reviews,
+        });
+    }
+    catch (error) {
+        console.error("Get project reviews error:", error);
+        res.status(500).json({ error: "Failed to fetch reviews" });
+    }
+};
+exports.getProjectReviews = getProjectReviews;
+//get dashboard stats
+const getDashboardStats = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        // Total projects
+        const totalProjects = await prisma_1.prisma.project.count({
+            where: { userId },
+        });
+        // Total files analyzed
+        const totalFiles = await prisma_1.prisma.file.count({
+            where: {
+                project: { userId },
+            },
+        });
+        // Total reviews
+        const totalReviews = await prisma_1.prisma.review.count({
+            where: {
+                file: {
+                    project: { userId },
+                },
+            },
+        });
+        // Get all reviews with summaries
+        const reviews = await prisma_1.prisma.review.findMany({
+            where: {
+                file: {
+                    project: { userId },
+                },
+                status: "COMPLETED",
+            },
+            select: {
+                summary: true,
+                createdAt: true,
+            },
+        });
+        //Aggregate stats
+        let totalIssues = 0;
+        let criticalIssues = 0;
+        let highIssues = 0;
+        let mediumIssues = 0;
+        let lowIssues = 0;
+        reviews.forEach((review) => {
+            if (review.summary) {
+                totalIssues += review.summary.totalIssues || 0;
+                criticalIssues += review.summary.bySeverity?.critical || 0;
+                highIssues += review.summary.bySeverity?.high || 0;
+                mediumIssues += review.summary.bySeverity?.medium || 0;
+                lowIssues += review.summary.bySeverity?.low || 0;
+            }
+        });
+        // Top 10 files with the most issues
+        const filesWithIssues = await prisma_1.prisma.file.findMany({
+            where: {
+                project: { userId },
+            },
+            include: {
+                reviews: {
+                    where: { status: "COMPLETED" },
+                    orderBy: { createdAt: "desc" },
+                    take: 1,
+                },
+            },
+        });
+        const topProblematicFiles = filesWithIssues
+            .filter((f) => f.reviews.length > 0 && f.reviews[0].summary)
+            .map((f) => ({
+            filename: f.filename,
+            language: f.language,
+            issueCount: f.reviews[0].summary?.totalIssues || 0,
+            criticalCount: f.reviews[0].summary?.bySeverity?.critical || 0,
+            reviewId: f.reviews[0].id,
+            createdAt: f.reviews[0].createdAt,
+        }))
+            .sort((a, b) => b.issueCount - a.issueCount)
+            .slice(0, 10);
+        // Recent reviews (last 10)
+        const recentReviews = await prisma_1.prisma.review.findMany({
+            where: {
+                file: {
+                    project: { userId },
+                },
+                status: "COMPLETED",
+            },
+            include: {
+                file: {
+                    select: {
+                        filename: true,
+                        language: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: "desc" },
+            take: 10,
+        });
+        res.json({
+            success: true,
+            data: {
+                totalProjects,
+                totalFiles,
+                totalReviews,
+                totalIssues,
+                criticalIssues,
+                highIssues,
+                mediumIssues,
+                lowIssues,
+                topProblematicFiles,
+                recentReviews,
+            },
+        });
+    }
+    catch (error) {
+        console.error("Get dashboard stats error:", error);
+        res.status(500).json({ error: "Failed to fetch dashboard stats" });
+    }
+};
+exports.getDashboardStats = getDashboardStats;
+const addComment = async (req, res) => {
+    try {
+        const { reviewId } = req.params;
+        const { commentText, lineNumber } = req.body;
+        const userId = req.user.id;
+        if (!commentText) {
+            return res.status(400).json({ error: "Comment text is required" });
+        }
+        // verify review exists and belongs to user
+        const review = await prisma_1.prisma.review.findFirst({
+            where: {
+                id: parseInt(reviewId),
+                file: {
+                    project: {
+                        userId,
+                    },
+                },
+            },
+        });
+        if (!review) {
+            return res.status(404).json({ error: "Review not found" });
+        }
+        const comment = await prisma_1.prisma.comment.create({
+            data: {
+                reviewId: parseInt(reviewId),
+                authorId: userId,
+                commentText,
+                lineNumber: lineNumber ? parseInt(lineNumber) : null,
+                isAI: false,
+            },
+            include: {
+                author: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        avatar: true,
+                    },
+                },
+            },
+        });
+        res.status(201).json({
+            success: true,
+            data: comment,
+        });
+    }
+    catch (error) {
+        console.error("Add comment error:", error);
+        res.status(500).json({ error: "Failed to add comment" });
+    }
+};
+exports.addComment = addComment;
+const deleteReview = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        // verify ownership
+        const review = await prisma_1.prisma.review.findFirst({
+            where: {
+                id: parseInt(id),
+                file: {
+                    project: {
+                        userId,
+                    },
+                },
+            },
+        });
+        if (!review) {
+            return res.status(404).json({ error: "Review not found" });
+        }
+        await prisma_1.prisma.review.delete({
+            where: { id: parseInt(id) },
+        });
+        res.json({
+            success: true,
+            message: "Review deleted successfully",
+        });
+    }
+    catch (error) {
+        console.error("Delete review error:", error);
+        res.status(500).json({ error: "Failed to delete review" });
+    }
+};
+exports.deleteReview = deleteReview;

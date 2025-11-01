@@ -1,0 +1,17 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const auth_1 = require("../middleware/auth");
+const userController_1 = require("../controllers/userController");
+const router = (0, express_1.Router)();
+router.get("/profile", auth_1.authenticateToken, userController_1.getProfile);
+router.put("/profile", auth_1.authenticateToken, userController_1.updateProfile);
+router.post("/profile/change-password", auth_1.authenticateToken, userController_1.changePassword);
+router.post("/profile/upload-avatar", auth_1.authenticateToken, userController_1.uploadAvatar);
+router.post("/profile/verify-email-change", userController_1.verifyEmailChange);
+router.get("/admin/users", auth_1.authenticateToken, (0, auth_1.requireRole)(["ADMIN"]), userController_1.getAllUsers);
+router.put("/admin/users/:id/role", auth_1.authenticateToken, (0, auth_1.requireRole)(["ADMIN"]), userController_1.updateUserRole);
+router.put("/admin/users/:id/status", auth_1.authenticateToken, (0, auth_1.requireRole)(["ADMIN"]), userController_1.updateUserStatus);
+router.delete("/profile", auth_1.authenticateToken, userController_1.deleteMyAccount);
+router.delete("/admin/users/:id", auth_1.authenticateToken, (0, auth_1.requireRole)(["ADMIN"]), userController_1.deleteUserByAdmin);
+exports.default = router;
