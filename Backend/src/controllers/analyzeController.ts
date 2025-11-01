@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { aiService } from "../services/aiService";
 import { detectLanguage } from "../utils/languageDetector";
 import { DiffService } from "../services/diffService";
+import { GuidelineService } from "../services/guidelineService";
 
 export const analyzeFile = async (req: Request, res: Response) => {
   try {
@@ -30,7 +31,29 @@ export const analyzeFile = async (req: Request, res: Response) => {
     const newHash = DiffService.calculateHash(content);
     const filePath = path || "/";
 
-    console.log(`📝 Analyzing ${filename} (${language})...`);
+    console.log(`📝 Analyzing ${filename} (${language} - ${filename.substring(filename.lastIndexOf('.'))})...`);
+    
+    // Validate language detection
+    const fileExtension = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    const expectedLanguage = language.toLowerCase();
+    
+    // Log language context for AI
+    console.log(`🔍 Language context: ${expectedLanguage} code from ${fileExtension} file`);
+
+    const guidelineIds = (project as any).guidelineIds as string[] | null | undefined;
+    const guidelineRules = guidelineIds && guidelineIds.length > 0
+      ? GuidelineService.combineGuidelines(guidelineIds.filter((id) => {
+          const guideline = GuidelineService.getById(id);
+          return guideline && guideline.language.includes(language);
+        }))
+      : undefined;
+
+    if (guidelineRules) {
+      console.log(`📋 Applying ${guidelineIds?.filter(id => {
+        const g = GuidelineService.getById(id);
+        return g && g.language.includes(language);
+      }).length || 0} coding guidelines for ${language}...`);
+    }
 
     const existingFile = await prisma.file.findFirst({
       where: {
@@ -130,7 +153,8 @@ export const analyzeFile = async (req: Request, res: Response) => {
           filename,
           changedLines,
           diffSnippet,
-          (project as any).customRules || undefined
+          (project as any).customRules || undefined,
+          guidelineRules
         );
       } else {
         console.log(`📝 Running FULL analysis...`);
@@ -139,7 +163,8 @@ export const analyzeFile = async (req: Request, res: Response) => {
           content,
           language,
           filename,
-          (project as any).customRules || undefined
+          (project as any).customRules || undefined,
+          guidelineRules
         );
       }
 

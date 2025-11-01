@@ -23,9 +23,12 @@ export class AIService {
     code: string,
     language: string,
     filename: string,
-    customRules?: string
+    customRules?: string,
+    guidelineRules?: string
   ): string {
-    let prompt = `You are an expert code reviewer. Analyze the following ${language} code and identify issues.
+    const languageSpecificChecks = this.getLanguageSpecificChecks(language);
+    
+    let prompt = `You are an expert ${language} code reviewer. Analyze ONLY this ${language} code file and identify REAL issues.
 
 CRITICAL: You MUST respond with ONLY valid JSON. No markdown, no code blocks, no explanations before or after the JSON. Start directly with { and end with }.
 
@@ -34,13 +37,13 @@ Required JSON format (respond EXACTLY like this):
   "issues": [
     {
       "line": 10,
-      "severity": "high",
-      "category": "security",
-      "title": "SQL Injection vulnerability",
-      "description": "User input is directly concatenated into SQL query without sanitization",
-      "suggestion": "Use parameterized queries or prepared statements",
-      "fixedCode": "PreparedStatement stmt = conn.prepareStatement(\"SELECT * FROM users WHERE id = ?\");",
-      "reasoning": "Direct string concatenation allows malicious SQL injection attacks"
+      "severity": "medium",
+      "category": "bug",
+      "title": "Potential null pointer exception",
+      "description": "Variable may be null when accessed without null check",
+      "suggestion": "Add null check before accessing the variable",
+      "fixedCode": "if (variable != null) { variable.doSomething(); }",
+      "reasoning": "Null pointer exceptions can cause runtime crashes"
     }
   ]
 }
@@ -56,40 +59,187 @@ IMPORTANT RULES:
 - Category must be: "security", "bug", "performance", "style", or "best-practice"
 
 FILE: ${filename}
-LANGUAGE: ${language}
+DETECTED LANGUAGE: ${language}
+FILE EXTENSION: ${filename.substring(filename.lastIndexOf('.'))}
+
+LANGUAGE-SPECIFIC CHECKS (ONLY check these for ${language} code):
+${languageSpecificChecks}
 `;
-    if (customRules) {
-      prompt += `\nCUSTOM RULES TO ENFORCE:\n${customRules}\n`;
+
+    if (guidelineRules) {
+      prompt += `\n${guidelineRules}\n`;
     }
+
+    if (customRules) {
+      prompt += `\nCUSTOM PROJECT RULES:\n${customRules}\n`;
+    }
+
     prompt += `
-CODE TO ANALYZE:
+CODE TO ANALYZE (${language}):
+\`\`\`${language}
 ${code}
+\`\`\`
 
-Focus on:
-1. Security vulnerabilities (SQL injection, XSS, auth issues)
-2. Logic bugs and potential runtime errors
-3. Performance bottlenecks
-4. Code style and best practices
-5. Missing error handling
+ANALYSIS INSTRUCTIONS - FOLLOW EXACTLY:
+1. FIRST STEP: Read the ENTIRE code carefully and identify what it does
+2. SECOND STEP: Check ONLY the language-specific issues listed above for ${language}
+3. THIRD STEP: For each potential issue found, verify it ACTUALLY exists by checking:
+   - Can you see the problematic pattern in the code?
+   - Does the line number point to actual problematic code?
+   - Is this issue relevant to ${language}?
+4. FINAL STEP: Only report issues that pass ALL three checks above
 
-Provide actionable, specific feedback. Include line numbers. Be concise but thorough.
+CRITICAL CONTEXT CHECKING:
+- If analyzing Java code: Look for BufferedReader, FileReader, Scanner - check if they're closed properly
+- If analyzing Java code: Look for try-catch-finally or try-with-resources for file operations
+- If code has NO SQL/database operations → DO NOT flag SQL injection
+- If code has NO HTML/web content → DO NOT flag XSS
+- If code has NO authentication logic → DO NOT flag auth issues
+
+PRIORITY ORDER (check issues in this exact order):
+1. Resource leaks (files, streams, connections not closed) - MOST CRITICAL for ${language}
+2. Null pointer exceptions (variables used without null checks)
+3. Logic bugs and potential runtime errors
+4. Exception handling issues (missing try-catch, incorrect exception handling)
+5. Code style violations (naming, formatting for ${language})
+6. Best practices violations (error handling, resource management patterns)
+7. Performance issues (inefficient algorithms)
+8. Security issues (ONLY if code actually handles sensitive data/SQL/authentication)
+
+CRITICAL RULES:
+- If there's NO SQL code → DO NOT flag SQL injection
+- If there's NO user input handling → DO NOT flag injection vulnerabilities
+- If there's NO authentication code → DO NOT flag auth vulnerabilities
+- Only flag issues that you can SEE in the actual code provided above
+- Be SPECIFIC: reference exact line numbers and actual code patterns
+
+VALIDATION BEFORE REPORTING EACH ISSUE:
+For EVERY issue you want to report, answer these questions:
+
+1. "Can I see the EXACT problematic code pattern in the ${language} code above?"
+   - Look at the specific line number
+   - Verify the code actually has that pattern
+   - Example for Java: If reporting BufferedReader resource leak, verify BufferedReader is opened but NOT in try-with-resources or finally block
+   - If NO → DO NOT flag it
+
+2. "Is this issue specific to ${language} and actually problematic?"
+   - For Java: Resource leaks (BufferedReader not in try-with-resources) = REAL
+   - For Java: Scanner not closed = REAL
+   - For Java: Null pointer after null check = REAL only if variable CAN be null
+   - For Java: SQL injection = REAL only if code contains SQL/Statement/PreparedStatement
+   - If NO → DO NOT flag it
+
+3. "Is the line number I'm reporting actually pointing to problematic code?"
+   - Check the exact line in the code
+   - Verify the issue exists at that line
+   - Example: If reporting "BufferedReader not closed", the line should show where BufferedReader is created
+   - If NO → DO NOT flag it or fix the line number
+
+4. "Am I inventing issues that don't exist?"
+   - If the code is clean for ${language} standards → Report fewer issues or empty array
+   - Better to report fewer accurate issues than many false positives
+
+ONLY report issues that pass ALL 4 checks above with YES.
 
 NOW RESPOND WITH ONLY THE JSON OBJECT (no other text):`;
     return prompt;
+  }
+
+  private getLanguageSpecificChecks(language: string): string {
+    const checks: Record<string, string> = {
+      java: `For JAVA code, check these REAL issues:
+1. Resource leaks (CRITICAL):
+   - BufferedReader/BufferedWriter not closed in finally block
+   - FileReader/FileWriter not properly handled
+   - Scanner not closed
+   - Connection/Statement not closed
+2. Null pointer exceptions:
+   - Variables accessed after potential null assignment
+   - Method calls on potentially null objects
+   - Array access without null checks
+3. Exception handling:
+   - IOException not caught or re-thrown properly
+   - Missing try-catch-finally blocks for resources
+4. Code quality:
+   - Uninitialized variables before use
+   - Missing @Override annotations where needed
+   - Incorrect access modifiers
+   - Array index out of bounds
+   - Type mismatches
+
+VERY IMPORTANT: For this Java code, focus on:
+- BufferedReader/FileReader resource leaks (must use try-with-resources or finally)
+- Scanner not closed (resource leak)
+- BufferedWriter not closed in finally
+- Variables used after null assignment
+
+ONLY check SQL injection if code contains: Statement, PreparedStatement, Connection, JDBC, database queries, SQL strings`,
+      
+      javascript: `For JAVASCRIPT/TypeScript code, check:
+- Undefined/null access errors
+- Missing await for async functions
+- Memory leaks (event listeners not removed)
+- Incorrect use of this/this binding
+- Missing error handling (try-catch)
+- Type errors (if TypeScript)
+- Incorrect React hooks usage (if React code)
+- Missing dependencies in useEffect
+ONLY check XSS if code handles user-generated HTML/DOM manipulation`,
+      
+      typescript: `For TYPESCRIPT code, check:
+- Type errors and type mismatches
+- Undefined/null access without checks
+- Missing await for async functions
+- React hooks violations (if React)
+- Missing dependencies in useEffect/useMemo
+- Incorrect type annotations
+- Memory leaks (event listeners, subscriptions)
+ONLY check XSS if code handles user-generated HTML/DOM`,
+      
+      python: `For PYTHON code, check:
+- Indentation errors
+- NameError (undefined variables)
+- Missing exception handling (try-except)
+- Resource leaks (files not closed)
+- Incorrect use of global variables
+- Missing type hints (if Python 3.6+)
+- List index out of range
+- Incorrect import statements
+ONLY check SQL injection if code contains: cursor.execute(), sqlite3, mysql, psycopg2`,
+      
+      csharp: `For C# code, check:
+- Null reference exceptions
+- Missing using statements for IDisposable
+- Resource leaks (not using using/Dispose)
+- Incorrect access modifiers
+- Missing async/await
+- Uninitialized variables
+- Type conversion errors
+ONLY check SQL injection if code contains: SqlCommand, SqlConnection, Entity Framework raw SQL`,
+    };
+
+    return checks[language.toLowerCase()] || `For ${language.toUpperCase()} code:
+- Check for syntax errors
+- Check for logic bugs
+- Check for missing error handling
+- Check for resource leaks
+- Check for null/undefined access
+ONLY check security vulnerabilities if code actually handles sensitive operations`;
   }
 
   async analyzeCode(
     code: string,
     language: string,
     filename: string,
-    customRules?: string
+    customRules?: string,
+    guidelineRules?: string
   ): Promise<AnalysisResult> {
     const startTime = Date.now();
 
     try {
       console.log(`Starting AI analysis for ${filename}...`);
 
-      const prompt = this.buildPrompt(code, language, filename, customRules);
+      const prompt = this.buildPrompt(code, language, filename, customRules, guidelineRules);
 
       const promptTokens = Math.ceil(prompt.length / 4);
       console.log(`Sending request (~${promptTokens} tokens)...`);
@@ -147,7 +297,8 @@ NOW RESPOND WITH ONLY THE JSON OBJECT (no other text):`;
     filename: string,
     changedLines: number[],
     diffSnippet: string,
-    customRules?: string
+    customRules?: string,
+    guidelineRules?: string
   ): Promise<AnalysisResult> {
     const startTime = Date.now();
 
@@ -162,7 +313,8 @@ NOW RESPOND WITH ONLY THE JSON OBJECT (no other text):`;
         filename,
         changedLines,
         diffSnippet,
-        customRules
+        customRules,
+        guidelineRules
       );
 
       const promptTokens = Math.ceil(prompt.length / 4);
@@ -221,9 +373,12 @@ NOW RESPOND WITH ONLY THE JSON OBJECT (no other text):`;
     filename: string,
     changedLines: number[],
     diffSnippet: string,
-    customRules?: string
+    customRules?: string,
+    guidelineRules?: string
   ): string {
-    let prompt = `You are an expert code reviewer. Perform an INCREMENTAL REVIEW of recently changed code.
+    const languageSpecificChecks = this.getLanguageSpecificChecks(language);
+    
+    let prompt = `You are an expert ${language} code reviewer. Perform INCREMENTAL REVIEW of recently changed ${language} code.
 
 IMPORTANT: Respond ONLY with valid JSON in this exact format:
 {
@@ -242,27 +397,50 @@ IMPORTANT: Respond ONLY with valid JSON in this exact format:
 }
 
 FILE: ${filename}
-LANGUAGE: ${language}
+DETECTED LANGUAGE: ${language}
 CHANGED LINES: ${changedLines.join(", ")}
 
-FOCUS: Review ONLY the following changed/added lines and their immediate context:
+LANGUAGE-SPECIFIC CHECKS (ONLY for ${language}):
+${languageSpecificChecks}
+
+FOCUS: Review ONLY these changed/added lines and immediate context:
 
 ${diffSnippet}
 
 `;
-    if (customRules) {
-      prompt += `CUSTOM RULES TO ENFORCE:\n${customRules}\n\n`;
-    }
-    prompt += `
-Review criteria:
-1. NEW Security vulnerabilities in changed code
-2. NEW Logic bugs introduced by changes
-3. Performance impact of new code
-4. Style consistency with existing code
-5. Missing error handling in new code
-6. Breaking changes or regressions
 
-Focus ONLY on the changed lines. Be concise but thorough.`;
+    if (guidelineRules) {
+      prompt += `${guidelineRules}\n`;
+    }
+
+    if (customRules) {
+      prompt += `CUSTOM PROJECT RULES:\n${customRules}\n\n`;
+    }
+
+    prompt += `
+INCREMENTAL REVIEW CRITERIA (check ONLY changed lines):
+1. NEW Logic bugs in changed code (MOST IMPORTANT - check for ${language}-specific bugs)
+2. NEW ${language} syntax or type errors introduced
+3. Security issues (ONLY if changed code actually contains vulnerable patterns for ${language})
+4. Style violations (naming, formatting for ${language})
+5. Missing error handling in new code (${language}-specific error handling)
+6. Breaking changes or regressions
+7. Compliance with ${language} coding standards
+
+CRITICAL VALIDATION:
+Before flagging each issue, verify:
+- Is this issue visible in the CHANGED lines shown above?
+- Is this issue relevant to ${language} code?
+- Does the code actually contain the technology/framework this issue refers to?
+- If NO to any → DO NOT flag it
+
+Examples of what NOT to flag:
+- SQL injection if changed code has NO database/SQL operations
+- XSS if changed code has NO HTML/DOM manipulation
+- Auth issues if changed code has NO authentication logic
+- Issues for languages/frameworks not used in this file
+
+NOW RESPOND WITH ONLY THE JSON OBJECT (no other text):`;
     return prompt;
   }
 
@@ -487,14 +665,96 @@ IMPORTANT: Respond ONLY with plain text (no JSON, no markdown formatting).`;
         throw new Error("Invalid response format");
       }
 
-      const validIssues = parsed.issues.filter((issue: any) => 
+      let validIssues = parsed.issues.filter((issue: any) => 
         issue && 
         typeof issue.line === 'number' && 
         typeof issue.severity === 'string' &&
         typeof issue.title === 'string'
       );
 
-      console.log(`✅ Successfully parsed ${validIssues.length} issues`);
+      // Filter out false positives
+      validIssues = validIssues.filter((issue: any) => {
+        const title = (issue.title || '').toLowerCase();
+        const description = (issue.description || '').toLowerCase();
+        const suggestion = (issue.suggestion || '').toLowerCase();
+        const category = (issue.category || '').toLowerCase();
+        
+        // Filter SQL injection false positives
+        if (title.includes('sql injection') || description.includes('sql injection') || suggestion.includes('sql injection')) {
+          const hasSqlKeywords = description.includes('sql') || description.includes('database') || 
+                                description.includes('query') || description.includes('statement') ||
+                                description.includes('preparedstatement') || description.includes('jdbc') ||
+                                description.includes('connection') || description.includes('cursor') ||
+                                description.includes('execute');
+          if (!hasSqlKeywords) {
+            console.log(`⚠️  Filtered out false SQL injection issue at line ${issue.line} - no SQL code detected`);
+            return false;
+          }
+        }
+        
+        // Filter XSS false positives
+        if (title.includes('xss') || description.includes('xss') || (category === 'security' && (title.includes('cross-site') || title.includes('script')))) {
+          const hasWebKeywords = description.includes('html') || description.includes('dom') || 
+                                description.includes('innerhtml') || description.includes('dangerouslysetinnerhtml') ||
+                                description.includes('user input') || description.includes('user-generated') ||
+                                description.includes('script') || description.includes('eval');
+          if (!hasWebKeywords) {
+            console.log(`⚠️  Filtered out false XSS issue at line ${issue.line} - no HTML/web context`);
+            return false;
+          }
+        }
+        
+        // Filter auth false positives
+        if ((category === 'security' && (title.includes('auth') || title.includes('authentication') || title.includes('authorization'))) ||
+            description.includes('authentication') || description.includes('authorization')) {
+          const hasAuthKeywords = description.includes('token') || description.includes('session') ||
+                                 description.includes('login') || description.includes('password') ||
+                                 description.includes('jwt') || description.includes('credential') ||
+                                 description.includes('cookie') || description.includes('bearer');
+          if (!hasAuthKeywords) {
+            console.log(`⚠️  Filtered out false auth issue at line ${issue.line} - no auth code detected`);
+            return false;
+          }
+        }
+        
+        // Enhanced validation for Java null pointer exceptions
+        // Only keep if description clearly explains WHY variable can be null
+        if (title.includes('null pointer') || title.includes('nullpointer') || description.includes('null pointer')) {
+          // Check if description provides actual context (not generic)
+          const hasSpecificContext = description.includes('variable') || description.includes('object') || 
+                                    description.includes('method') || description.includes('return') ||
+                                    description.includes('parameter') || description.includes('field');
+          const isGeneric = description.includes('may be null') && !hasSpecificContext;
+          
+          if (isGeneric && !description.includes('after') && !description.includes('before') && 
+              !description.includes('without') && !description.includes('missing')) {
+            console.log(`⚠️  Filtered out generic null pointer exception at line ${issue.line} - no specific context`);
+            return false;
+          }
+        }
+        
+        // Enhanced validation for Java resource leaks (these are CRITICAL - keep them)
+        if ((title.includes('resource leak') || title.includes('not closed') || 
+             description.includes('resource leak') || description.includes('not closed')) &&
+            (title.includes('bufferedreader') || title.includes('bufferedwriter') || 
+             title.includes('scanner') || title.includes('filereader') || title.includes('filewriter') ||
+             description.includes('bufferedreader') || description.includes('bufferedwriter') ||
+             description.includes('scanner') || description.includes('filereader') || description.includes('filewriter'))) {
+          // These are VALID and CRITICAL Java issues - ALWAYS keep them
+          console.log(`✅ Keeping CRITICAL Java resource leak issue at line ${issue.line}`);
+          return true;
+        }
+        
+        // Validate line number
+        if (issue.line < 1 || issue.line > 100000) {
+          console.log(`⚠️  Filtered out issue with invalid line number: ${issue.line}`);
+          return false;
+        }
+        
+        return true;
+      });
+
+      console.log(`✅ Successfully parsed ${validIssues.length} issues (after filtering)`);
       return { issues: validIssues };
     } catch (error: any) {
       console.error("⚠️  Failed to parse AI response, returning fallback");

@@ -27,6 +27,8 @@ interface ReviewState {
     name: string;
     description?: string;
     repoUrl?: string;
+    guidelineIds?: string[];
+    customRules?: string;
   }) => Promise<Project>;
   setCurrentProject: (project: Project | null) => void;
   deleteProject: (id: number) => Promise<void>;

@@ -16,10 +16,13 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     if (!isAuthenticated && !user) {
       const token = apiService.getAccessToken();
       if (token) {
-        loadUser();
+        loadUser().catch((error) => {
+          console.error("Failed to load user:", error);
+        });
       }
     }
-  }, [isAuthenticated, user, loadUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, user]);
 
   //if user is not authenticated, redirect to login page
   if (!isAuthenticated) {

@@ -74,6 +74,8 @@ model Project {
   name String
   description String?
   repoUrl String?
+  customRules String? @db.Text
+  guidelineIds Json? @db.JsonB
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

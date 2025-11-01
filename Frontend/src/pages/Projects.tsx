@@ -3,32 +3,56 @@ import { useNavigate } from "react-router-dom";
 import { useReviewStore } from "../store/reviewStore";
 import { Navbar } from "../components/layout/Navbar";
 import { LoadingSpinner } from "../components/ui/LoadingSpinner";
+import { guidelinesApi, type CodingGuideline } from "../services/reviewApi";
 
 export const Projects = () => {
   const navigate = useNavigate();
   const { projects, isLoading, fetchProjects, createProject, deleteProject } =
     useReviewStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [availableGuidelines, setAvailableGuidelines] = useState<CodingGuideline[]>([]);
+  const [selectedGuidelineIds, setSelectedGuidelineIds] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     repoUrl: "",
+    customRules: "",
   });
 
   useEffect(() => {
     fetchProjects();
+    loadGuidelines();
   }, []);
+
+  const loadGuidelines = async () => {
+    try {
+      const response = await guidelinesApi.getAll();
+      setAvailableGuidelines(response.data);
+    } catch (error) {
+      console.error("Failed to load guidelines:", error);
+    }
+  };
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const newProject = await createProject(formData);
+      const newProject = await createProject({
+        ...formData,
+        guidelineIds: selectedGuidelineIds.length > 0 ? selectedGuidelineIds : undefined,
+      });
       setShowCreateModal(false);
-      setFormData({ name: "", description: "", repoUrl: "" });
+      setFormData({ name: "", description: "", repoUrl: "", customRules: "" });
+      setSelectedGuidelineIds([]);
       navigate(`/analyze/${newProject.id}`);
     } catch (error) {
       console.error("Failed to create project:", error);
     }
+  };
+
+  const toggleGuideline = (id: string) => {
+    setSelectedGuidelineIds((prev) =>
+      prev.includes(id) ? prev.filter((gid) => gid !== id) : [...prev, id]
+    );
   };
 
   const handleDeleteProject = async (id: number) => {
@@ -200,18 +224,43 @@ export const Projects = () => {
       {/* Create Project Modal */}
       {showCreateModal && (
         <div
-          className="fixed inset-0 flex items-center justify-center z-50"
+          className="fixed inset-0 z-50"
           onClick={() => setShowCreateModal(false)}
         >
           <div
-            className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4 animate-in fade-in zoom-in duration-200"
+            className="absolute right-4 top-20 bg-white rounded-lg shadow-lg border border-gray-200 w-full max-w-md max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Create New Project
-            </h2>
+            {/* Modal Header - Fixed */}
+            <div className="px-6 pt-5 pb-4 border-b border-gray-200 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Create New Project
+                </h2>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
 
-            <form onSubmit={handleCreateProject} className="space-y-4">
+            {/* Modal Content - Scrollable */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 custom-scrollbar">
+              <form onSubmit={handleCreateProject} id="project-form" className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Project Name *
@@ -259,22 +308,88 @@ export const Projects = () => {
                 />
               </div>
 
-              <div className="flex space-x-3 pt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Coding Guidelines
+                </label>
+                <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
+                  {availableGuidelines.length === 0 ? (
+                    <p className="text-sm text-gray-500">Loading guidelines...</p>
+                  ) : (
+                    availableGuidelines.map((guideline) => (
+                      <label
+                        key={guideline.id}
+                        className="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedGuidelineIds.includes(guideline.id)}
+                          onChange={() => toggleGuideline(guideline.id)}
+                          className="mt-1 w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900">
+                              {guideline.name}
+                            </span>
+                            <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                              {guideline.language.join(", ")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {guideline.description}
+                          </p>
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+                {selectedGuidelineIds.length > 0 && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    {selectedGuidelineIds.length} guideline(s) selected
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Custom Rules (Optional)
+                </label>
+                <textarea
+                  value={formData.customRules}
+                  onChange={(e) =>
+                    setFormData({ ...formData, customRules: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                  rows={4}
+                  placeholder="Define custom coding standards for this project..."
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Add project-specific coding rules that will be enforced during AI review
+                </p>
+              </div>
+              </form>
+            </div>
+
+            {/* Modal Footer - Fixed */}
+            <div className="px-6 py-4 border-t border-gray-200 flex-shrink-0 rounded-b-lg">
+              <div className="flex space-x-3">
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-4 py-2 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  form="project-form"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                 >
-                  Create
+                  Create Project
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

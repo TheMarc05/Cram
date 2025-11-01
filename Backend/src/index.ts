@@ -7,6 +7,7 @@ import userRouter from "./routes/users";
 import projectRouter from "./routes/projects";
 import analyzeRouter from "./routes/analyze";
 import reviewRouter from "./routes/reviews";
+import guidelineRouter from "./routes/guidelines";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -33,6 +34,7 @@ app.use("/api/users", userRouter);
 app.use("/api/projects", projectRouter);
 app.use("/api/analyze", analyzeRouter);
 app.use("/api/reviews", reviewRouter);
+app.use("/api/guidelines", guidelineRouter);
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

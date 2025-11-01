@@ -1,13 +1,24 @@
 import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
+import { GuidelineService } from "../services/guidelineService";
 
 export const createProject = async (req: Request, res: Response) => {
   try {
-    const { name, description, repoUrl } = req.body;
-    const userId = req.user!.id; // from auth middleware
+    const { name, description, repoUrl, guidelineIds, customRules } = req.body;
+    const userId = req.user!.id;
 
     if (!name) {
       return res.status(400).json({ error: "Project name is required" });
+    }
+
+    if (guidelineIds && Array.isArray(guidelineIds)) {
+      const { valid, invalid } = GuidelineService.validateGuidelineIds(guidelineIds);
+      if (invalid.length > 0) {
+        return res.status(400).json({
+          error: "Invalid guideline IDs",
+          invalidIds: invalid,
+        });
+      }
     }
 
     const project = await prisma.project.create({
@@ -16,6 +27,8 @@ export const createProject = async (req: Request, res: Response) => {
         name,
         description,
         repoUrl,
+        guidelineIds: guidelineIds || null,
+        customRules: customRules || null,
       },
     });
 
@@ -95,10 +108,9 @@ export const getProjectById = async (req: Request, res: Response) => {
 export const updateProject = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, description, repoUrl } = req.body;
+    const { name, description, repoUrl, guidelineIds, customRules } = req.body;
     const userId = req.user!.id;
 
-    // Verifică ownership
     const existingProject = await prisma.project.findFirst({
       where: {
         id: parseInt(id),
@@ -110,12 +122,24 @@ export const updateProject = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Project not found" });
     }
 
+    if (guidelineIds && Array.isArray(guidelineIds)) {
+      const { valid, invalid } = GuidelineService.validateGuidelineIds(guidelineIds);
+      if (invalid.length > 0) {
+        return res.status(400).json({
+          error: "Invalid guideline IDs",
+          invalidIds: invalid,
+        });
+      }
+    }
+
     const project = await prisma.project.update({
       where: { id: parseInt(id) },
       data: {
-        name,
-        description,
-        repoUrl,
+        name: name !== undefined ? name : existingProject.name,
+        description: description !== undefined ? description : existingProject.description,
+        repoUrl: repoUrl !== undefined ? repoUrl : existingProject.repoUrl,
+        guidelineIds: guidelineIds !== undefined ? guidelineIds : existingProject.guidelineIds,
+        customRules: customRules !== undefined ? customRules : existingProject.customRules,
       },
     });
 

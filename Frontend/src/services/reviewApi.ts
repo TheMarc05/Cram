@@ -23,11 +23,21 @@ export interface Project {
   name: string;
   description?: string;
   repoUrl?: string;
+  customRules?: string;
+  guidelineIds?: string[];
   createdAt: string;
   updatedAt: string;
   _count?: {
     files: number;
   };
+}
+
+export interface CodingGuideline {
+  id: string;
+  name: string;
+  language: string[];
+  description: string;
+  rules: string;
 }
 
 export interface Issue {
@@ -128,6 +138,8 @@ export const projectsApi = {
     name: string;
     description?: string;
     repoUrl?: string;
+    guidelineIds?: string[];
+    customRules?: string;
   }) => {
     const response = await axiosInstance.post("/projects", data);
     return response.data;
@@ -143,13 +155,37 @@ export const projectsApi = {
     return response.data;
   },
 
-  update: async (id: number, data: Partial<Project>) => {
+  update: async (id: number, data: Partial<Project & { guidelineIds?: string[]; customRules?: string }>) => {
     const response = await axiosInstance.put(`/projects/${id}`, data);
     return response.data;
   },
 
   delete: async (id: number) => {
     const response = await axiosInstance.delete(`/projects/${id}`);
+    return response.data;
+  },
+};
+
+// Guidelines API
+export const guidelinesApi = {
+  getAll: async (language?: string): Promise<{ success: boolean; data: CodingGuideline[] }> => {
+    const params = language ? { language } : {};
+    const response = await axiosInstance.get("/guidelines", { params });
+    return response.data;
+  },
+
+  getById: async (id: string): Promise<{ success: boolean; data: CodingGuideline }> => {
+    const response = await axiosInstance.get(`/guidelines/${id}`);
+    return response.data;
+  },
+
+  getByLanguage: async (language: string): Promise<{ success: boolean; data: CodingGuideline[] }> => {
+    const response = await axiosInstance.get(`/guidelines/language/${language}`);
+    return response.data;
+  },
+
+  validate: async (ids: string[]): Promise<{ success: boolean; data: { valid: string[]; invalid: string[]; validCount: number; invalidCount: number } }> => {
+    const response = await axiosInstance.post("/guidelines/validate", { ids });
     return response.data;
   },
 };
